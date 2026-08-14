@@ -457,7 +457,8 @@ Suite B（LLM 評測，30 題）**尚未執行，因此沒有任何分數**。
 除了 222 個自動化測試，另外做過一次**實機排練**：用打包好的 jar，接真的
 PostgreSQL 16 與真的 Redis 7，灌 50,000 筆 demo 訂單，照規格書 §13 的
 3 分鐘腳本從頭跑一遍——MCP 走 Streamable HTTP、審批走瀏覽器表單（含 CSRF）。
-完整輸出在 [docs/demo-transcript.md](docs/demo-transcript.md)。
+完整輸出在 [docs/demo-transcript.md](docs/demo-transcript.md)，
+畫面截圖在 [docs/screenshots/](docs/screenshots/)。
 
 驗證到的行為（皆為實際輸出，非預期值）：
 
