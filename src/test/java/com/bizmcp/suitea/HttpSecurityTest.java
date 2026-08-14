@@ -39,6 +39,7 @@ class HttpSecurityTest extends AbstractPostgresTest {
 
     @Autowired WebApplicationContext context;
     @Autowired BizUserDetailsService userDetailsService;
+    @Autowired org.springframework.jdbc.core.JdbcTemplate jdbc;
 
     private MockMvc mvc;
 
@@ -153,6 +154,71 @@ class HttpSecurityTest extends AbstractPostgresTest {
                         .with(csrf()))
                 .andReturn().getResponse().getStatus();
         assertThat(withToken).isNotEqualTo(403);
+    }
+
+    // --- audit console (spec section 7.4) ---------------------------------
+
+    @Test
+    void theAuditTrailIsReadableByAnAuditor() throws Exception {
+        BizUserDetails grace = userDetailsService.loadUserByUsername("grace");
+        assertThat(grace.role().name()).isEqualTo("AUDITOR");
+
+        mvc.perform(get("/audit/logs").with(user(grace)))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void theAuditTrailIsRefusedToEveryoneElse() throws Exception {
+        // Including the approver, who can change data but has no business
+        // reading the trail of everyone who did.
+        for (String username : new String[]{"alice", "bob", "erin", "hana"}) {
+            BizUserDetails other = userDetailsService.loadUserByUsername(username);
+            mvc.perform(get("/audit/logs").with(user(other)))
+                    .andExpect(status().isForbidden());
+        }
+    }
+
+    @Test
+    void readingTheAuditTrailIsItselfAudited() throws Exception {
+        BizUserDetails grace = userDetailsService.loadUserByUsername("grace");
+        mvc.perform(get("/audit/logs").with(user(grace))).andExpect(status().isOk());
+
+        // Otherwise the one role that can see everything is the only role that
+        // leaves no trace.
+        Integer recorded = jdbc.queryForObject(
+                "SELECT count(*) FROM mcp_audit_log "
+                + "WHERE tool_name = 'audit_query_logs' AND principal_role = 'AUDITOR'",
+                Integer.class);
+        assertThat(recorded).isGreaterThanOrEqualTo(1);
+    }
+
+    @Test
+    void theApprovalSummaryNeverExposesUnmaskedArguments() throws Exception {
+        // Self-contained: this context may have no audit rows yet, and test
+        // order is not guaranteed.
+        Long auditId = jdbc.queryForObject(
+                "INSERT INTO mcp_audit_log (trace_id, principal_id, principal_role, tenant_id,"
+                + " tool_name, risk_tier, arguments, decision)"
+                + " VALUES ('trc_httpsec', 42, 'STORE_MANAGER', 7, 'adjust_inventory', 'T3',"
+                + " '{}'::jsonb, 'PENDING_APPROVAL') RETURNING id", Long.class);
+
+        jdbc.update("INSERT INTO mcp_approval_request (id, audit_log_id, tenant_id, tool_name,"
+                    + " arguments, preview, requested_by, status, expires_at)"
+                    + " VALUES ('apr_httpsec', ?, 7, 'adjust_inventory',"
+                    + " '{\"reason\":\"客戶 0912345678 抱怨\"}'::jsonb, '{\"before\":120}'::jsonb,"
+                    + " 42, 'PENDING', now() + interval '1 day')", auditId);
+
+        BizUserDetails grace = userDetailsService.loadUserByUsername("grace");
+        String body = mvc.perform(get("/audit/approvals").with(user(grace)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(body).contains("apr_httpsec").contains("PENDING");
+        // Approval arguments are stored unmasked so an approver can judge the
+        // request; a general audit query must not become a way to read them.
+        assertThat(body).doesNotContain("0912345678").doesNotContain("reason");
+
+        jdbc.update("DELETE FROM mcp_approval_request WHERE id = 'apr_httpsec'");
     }
 
     // --- everything else -------------------------------------------------

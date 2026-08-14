@@ -1,6 +1,6 @@
 # Suite A runs on every push and must be 100% green (spec section 11.1).
-# Suite B (LLM evaluation) is a floating metric, costs money per run, and is
-# deliberately kept off the build gate — it runs nightly instead.
+# The performance and LLM suites are opt-in: one is slow and hardware-sensitive,
+# the other costs money and floats between runs. Neither gates the build.
 
 name: CI
 
@@ -9,13 +9,27 @@ on:
     branches: ["**"]
   pull_request:
   schedule:
-    # Nightly slot for Suite B, once it has an API key configured.
+    # Nightly slot for the perf and LLM suites.
     - cron: "0 18 * * *"
+  workflow_dispatch:
 
 jobs:
   suite-a:
     name: Suite A - deterministic governance tests
     runs-on: ubuntu-latest
+
+    services:
+      # Lets RedisRateLimiterIT run against a real Redis instead of skipping.
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
     steps:
       - uses: actions/checkout@v4
 
@@ -27,8 +41,10 @@ jobs:
           cache: maven
 
       - name: Run Suite A
-        # Real PostgreSQL is started in-process by zonky embedded-postgres,
-        # so no service container is needed.
+        env:
+          # PostgreSQL is started in-process by zonky embedded-postgres, so only
+          # Redis needs a service container.
+          BIZMCP_TEST_REDIS_PORT: 6379
         run: mvn -B verify
 
       - name: Publish test report
@@ -47,9 +63,29 @@ jobs:
       - name: Build image
         run: docker build -t bizmcp:ci .
 
+  performance:
+    name: Performance verification (nightly, non-blocking)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: "21"
+          distribution: temurin
+          cache: maven
+      - name: Seed 50,000 orders and measure
+        run: mvn -B test -Dgroups=perf -Dexcluded.test.groups=
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: performance-report
+          path: docs/performance-report.md
+
   suite-b:
     name: Suite B - LLM evaluation (nightly, non-blocking)
-    if: github.event_name == 'schedule'
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
@@ -62,9 +98,10 @@ jobs:
       - name: Run evaluation
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: mvn -B test -Dgroups=llm-eval -DfailIfNoTests=false
+        # Skips itself with a clear message if the secret is not configured.
+        run: mvn -B test -Dgroups=llm-eval -Dexcluded.test.groups=
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: eval-report
-          path: docs/eval-report.md
+          path: docs/eval-report-suite-b.md

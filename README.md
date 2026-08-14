@@ -278,7 +278,24 @@ LLM 呼叫 adjust_inventory(productId=1001, delta=-50, reason="盤點差異")
 保留其餘內容**：把 `客戶 0912345678 的團` 整串遮成 `客○○…○團` 雖然沒有外洩，
 卻也讓稽核無法回答「他到底搜了什麼」。
 
-### 6. Prompt injection：三道防線，不吹噓能根治
+### 6. 稽核保存與存取（規格書 §7.4，已實作）
+
+規格書把這節列為「只有政策沒有實作」。政策正是企業場景一定會追問的部分
+（留多久、誰能看、怎麼刪），所以這裡是實作而不是描述：
+
+- **稽核紀錄**：90 天留在主表，之後移入**按月分區**的 `mcp_audit_log_archive`；
+  超過一年直接 `DROP` 整個分區。分區的意義就在這裡——到期是 metadata 操作，
+  不是會讓表膨脹又跟線上寫入搶資源的大量 DELETE。
+- **審批單**：90 天後**直接刪除、不封存**。它存的是未遮罩的原始參數，
+  是全系統敏感度最高的表。
+- **搬移是原子的**：一筆紀錄不會同時在兩張表，也不會兩張表都沒有。
+  還被待審批單引用的稽核紀錄不會被搬走（外鍵會擋，而且審批者本來就該看得到）。
+- **存取控制**：`/audit/**` 只有 `AUDITOR` / `ADMIN` 進得去，
+  而且**讀稽核這件事本身也會留痕**——否則唯一看得到全部的角色，
+  就是唯一不留痕跡的角色。
+- 一般稽核查詢看得到審批單的存在與狀態，**看不到 `arguments`**。
+
+### 7. Prompt injection：三道防線，不吹噓能根治
 
 **誠實的立場是無法根治，只能降低影響半徑。**
 
@@ -288,7 +305,7 @@ LLM 呼叫 adjust_inventory(productId=1001, delta=-50, reason="盤點差異")
    伺服器端的原因）
 3. **寫入需人工** — 最壞情況下，破壞性操作仍停在審批閘門
 
-### 7. 錯誤訊息是介面的一部分
+### 8. 錯誤訊息是介面的一部分
 
 LLM 會讀錯誤訊息並嘗試自我修正，所以訊息要「寫給 LLM 看」：
 
@@ -377,21 +394,23 @@ private final tools.jackson.databind.json.JsonMapper jsonMapper;   // 自己 new
 mvn verify
 ```
 
-**196 個測試，100% 通過，每次 push 擋 CI。**
+**218 個測試，100% 通過，每次 push 擋 CI。**
 
 | 類別 | 案例數 | 斷言重點 |
 |---|---|---|
-| 工具級 RBAC | 26 | 每個工具 × 角色，放行／拒絕符合矩陣 |
 | 遮罩規則（單元） | 26 | 各策略的邊界：兩字姓名、畸形電話／Email |
+| 工具級 RBAC | 26 | 每個工具 × 角色，放行／拒絕符合矩陣 |
+| HTTP filter chain | 17 | 未帶 token 401、審批頁角色閘門、CSRF、稽核台權限 |
 | 審批狀態機（單元） | 13 | 每一條合法與非法轉換，終態不可再動 |
-| HTTP filter chain | 13 | 未帶 token 401、審批頁角色閘門、CSRF |
 | 查詢模板覆蓋 | 12 | **每一個模板都真的執行過**，且雙租戶皆可 |
 | 審批流程與冪等 | 11 | 同一 approvalId 執行兩次庫存只變動一次；重試上限轉 ABANDONED |
 | 遮罩走訪（單元） | 11 | 巢狀 record、List／Set／Map、不可變性 |
 | 分組與篩選 | 10 | STORE／DAY／PRODUCT 三種分組總額必須一致 |
+| 稽核保存與封存 | 9 | 90 天轉封存、分區到期即 DROP、審批單直接刪除 |
+| Redis 限流（真 Redis） | 9 | **多實例共用計數器**、TTL、依租戶／使用者／級別分桶 |
 | 遮罩（wire-level） | 8 | 回應 JSON 不含完整手機／姓名；地址依角色差異 |
-| 租戶隔離 | 8 | A 租戶查不到 B 租戶任何一列；偽造的 tenant 參數無效 |
 | JWT 身分解析 | 8 | 缺 tenant_id 一律拒絕，不預設任何租戶 |
+| 租戶隔離 | 8 | A 租戶查不到 B 租戶任何一列；偽造的 tenant 參數無效 |
 | 稽核 fail-closed | 6 | 工具拋例外時稽核仍留痕；切面順序正確 |
 | 錯誤訊息契約 | 6 | 可自我修正、且不洩漏內部細節 |
 | 評測資料集驗證 | 6 | 30 題格式正確、期望工具都存在、計分正確 |
@@ -405,6 +424,19 @@ mvn verify
 | Spike ① 回歸 | 2 | 代理破壞發現機制的行為被釘住 |
 | 稽核寫入失敗 | 1 | 稽核寫不進去時工具被拒 |
 | Migration + seed | 1 | schema 與種子資料可套用 |
+
+另外兩套**刻意不擋 build** 的：
+
+```bash
+# 效能驗收：灌 5 萬筆訂單、抓 EXPLAIN ANALYZE、量 P95
+mvn test -Dgroups=perf -Dexcluded.test.groups=
+
+# LLM 評測：需要 API key，沒有 key 會自動跳過而不是失敗
+ANTHROPIC_API_KEY=... mvn test -Dgroups=llm-eval -Dexcluded.test.groups=
+```
+
+效能結果見 [docs/performance-report.md](docs/performance-report.md)：
+5 萬筆訂單下走複合索引，端到端 P95 **16 ms**（預算 300 ms）。
 
 **測試跑在真的 PostgreSQL 上**（JSONB 欄位用 H2 代替沒有意義）。
 規格書寫 Testcontainers，但實作改用 zonky `embedded-postgres`：它在行程內啟動
@@ -461,20 +493,33 @@ Suite B（LLM 評測，30 題）**尚未執行，因此沒有任何分數**。
 主動列出來，比被問出來好：
 
 - **`tools/list` 沒有依角色過濾。** 低權限使用者仍會在列表看到用不到的工具；
-  呼叫時會被拒絕，資料不會外洩，但能力面確實有洩漏。原因是框架限制（見差異 #4）。
-- **Suite B 沒有跑過，沒有任何 LLM 相關數字。**
-- **Redis 限流路徑未在測試中實跑。** 接線與失敗模式有測試涵蓋（`RateLimiterWiringTest`），
-  但 `RedisRateLimiter` 對真正 Redis 的行為只在 `docker compose` 環境手動驗證。
+  呼叫時會被拒絕，資料不會外洩，但能力面確實有洩漏。
+  **這是唯一一項確認做不到而刻意不做的**——Spring AI 2.0 / MCP SDK 2.0 沒有
+  per-request 的掛載點，唯一路徑是攔截並改寫 SSE 串流回應，
+  代價是要把「所有」MCP 請求的 body 都緩衝起來，而且會在 SDK 改格式時
+  **安靜地失效**——那正是本專案整份文件在反對的失效模式。
+  完整證據與取捨見 [ADR-005](docs/adr/ADR-005-tools-list-filtering-not-implemented.md)。
+- **Suite B 沒有實際跑過，因此沒有任何 LLM 分數。** 驅動程式已完成且可執行，
+  但這個環境沒有 API key。有 key 時一行指令就會產出報告。
+- **Claude Desktop OAuth 連線截圖與 3 分鐘 demo 影片沒有做。**
+  需要桌面應用程式與錄影，不是這個環境能產出的東西。
 - **單租戶架構的簡化版。** 真正的多租戶 SaaS 還要處理跨租戶報表、租戶級配置。
 - **審批只有單層。** 實務上應依金額或影響範圍分級。
-- **稽核封存只有政策沒有實作**（保存 90 天 → 分區封存 → 一年後刪除）。
 - **JWT 簽章金鑰在啟動時產生**，重啟後既有 token 失效。正式部署要換成受管金鑰。
-- **API key 路徑是本機捷徑**，正式環境必須關閉。
+- **API key 路徑是本機捷徑**，正式環境必須關閉（`BIZMCP_API_KEY_ENABLED=false`）。
 - **沒做成本歸屬**（哪個部門用掉多少 token）——那是 LLM Gateway 那一層的職責，
   兩個專案刻意切開。
 - **沒有真實企業資料**，種子資料只是貼近真實分布的 demo 資料。
 
----
+### 前一版列為限制、現在已經補完的
+
+| 原本的限制 | 現況 |
+|---|---|
+| P95 與 `EXPLAIN ANALYZE` 沒有實測 | 已量測並產出 [performance-report.md](docs/performance-report.md)：5 萬筆下 P95 **16 ms** |
+| `RedisRateLimiter` 沒有對真 Redis 測過 | 9 個測試對真的 Redis 執行，含**多實例共用計數器** |
+| 稽核封存只有政策沒有實作 | 已實作：分區封存 + 到期 DROP + 每日排程，9 個測試 |
+| 稽核查詢權限與留痕沒有實作 | 已實作 `/audit/**`：AUDITOR／ADMIN 限定、讀取本身留痕、不外露審批參數 |
+| Suite B 只有資料集 | 驅動程式已完成，缺的只有 API key |
 
 ## 設計決策記錄（ADR）
 
@@ -482,6 +527,7 @@ Suite B（LLM 評測，30 題）**尚未執行，因此沒有任何分數**。
 2. [ADR-002 治理鏈用 AOP，以及它造成的工具發現 bug（Spike ①）](docs/adr/ADR-002-governance-via-aop.md)
 3. [ADR-003 遮罩改在序列化前（Spike ②）](docs/adr/ADR-003-masking-before-serialization.md)
 4. [ADR-004 稽核 fail-closed、REQUIRES_NEW 與切面順序](docs/adr/ADR-004-audit-fail-closed-and-transaction-boundary.md)
+5. [ADR-005 為什麼不做 `tools/list` 角色過濾](docs/adr/ADR-005-tools-list-filtering-not-implemented.md)
 
 ---
 

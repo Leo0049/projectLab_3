@@ -21,14 +21,19 @@ public class ToolAuthorizationVoter {
         if (allowedRoles == null || allowedRoles.length == 0) {
             return Decision.denyUnknownTool(toolName);
         }
-        for (Role allowed : allowedRoles) {
-            if (allowed == role) {
-                return Decision.allow();
-            }
-        }
-        return Decision.denyInsufficientRole(toolName, allowedRoles);
+        return isVisibleTo(role, allowedRoles)
+                ? Decision.allow()
+                : Decision.denyInsufficientRole(toolName, allowedRoles);
     }
 
+    /**
+     * Whether a role may use a tool at all.
+     *
+     * <p>Enforcement above is expressed in terms of this method rather than
+     * repeating the check, so "may call" and "may see" can never drift apart —
+     * which is the failure the spec's section 5.4 filtering would otherwise
+     * invite.
+     */
     public boolean isVisibleTo(Role role, Role[] allowedRoles) {
         if (allowedRoles == null) {
             return false;

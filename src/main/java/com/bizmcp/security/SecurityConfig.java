@@ -75,6 +75,9 @@ public class SecurityConfig {
                         .requestMatchers("/login", "/error", "/css/**").permitAll()
                         .requestMatchers("/actuator/health", "/actuator/info").permitAll()
                         .requestMatchers(HttpMethod.GET, "/actuator/**").hasAnyRole("ADMIN", "AUDITOR")
+                        // Reading the audit trail is itself a privileged action
+                        // (spec section 7.4).
+                        .requestMatchers("/audit/**").hasAnyRole("AUDITOR", "ADMIN")
                         .anyRequest().authenticated())
                 .formLogin(form -> form.loginPage("/login").permitAll())
                 .logout(Customizer.withDefaults())

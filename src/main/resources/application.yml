@@ -71,6 +71,16 @@ bizmcp:
       T1: { perMinute: 60, perDay: 2000 }
       T2: { perMinute: 20, perDay: 300 }
       T3: { perMinute: 5, perDay: 20 }
+  # Retention policy (spec section 7.4). Audit records cool into a monthly
+  # partitioned archive and expire by dropping partitions; approval requests
+  # hold unmasked arguments and are deleted outright.
+  retention:
+    enabled: ${BIZMCP_RETENTION_ENABLED:true}
+    audit-hot-window: P90D
+    audit-archive-window: P365D
+    approval-window: P90D
+    cron: "0 30 3 * * *"
+
   business-zone: Asia/Taipei
   issuer-uri: ${BIZMCP_ISSUER_URI:http://localhost:8080}
 

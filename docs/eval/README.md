@@ -24,7 +24,7 @@ So the split is:
 Security cannot be guaranteed probabilistically. That is the whole reason for
 the split, and it is the honest way to report both numbers.
 
-## What is implemented here
+## What is implemented
 
 - `questions.yml` — the 30-question dataset (spec section 11.3), with the
   expected tools and, where the answer is unambiguous, expected arguments.
@@ -35,27 +35,40 @@ the split, and it is the honest way to report both numbers.
   server, and that the scoring maths is right. This catches the errors that
   would otherwise only surface partway through a paid nightly run.
 
-## What is not yet implemented
+- `AnthropicMessagesClient` — a small Messages API client. Written by hand
+  rather than pulling an SDK into the dependency tree to serve one nightly test.
+- `EvalRunner` — the agent loop: it hands the model the **registered** tool
+  schemas and descriptions, executes the tool calls it makes through the
+  **real governance chain**, and feeds results (including refusals) back.
+- `LlmEvaluationTest` — the entry point. Skips with a clear message when
+  `ANTHROPIC_API_KEY` is absent, so a missing credential is never a red build.
 
-**The driver that actually talks to a model has not been written or run, so
-there are no scores yet.** `docs/eval-report.md` is a template with the numbers
-left blank on purpose. Publishing invented figures would be worse than
-publishing none: the first question anyone asks about a metric is how it was
-measured.
+## Running it
 
-To complete it:
+```bash
+ANTHROPIC_API_KEY=... mvn test -Dgroups=llm-eval -Dexcluded.test.groups=
+```
 
-1. Start the server (`docker compose up`).
-2. Connect an MCP client to `http://localhost:8080/mcp` as a fixed identity
-   (the `demo-cs-lead-key` API key keeps the run reproducible).
-3. For each question, send `prompt`, record the tool calls the model makes as
-   `EvalScorer.Observation`, and let the conversation finish.
-4. Pass the observations to `EvalScorer.score(...)` and render
-   `docs/eval-report.md`.
+Results are written to `docs/eval-report-suite-b.md`: metrics, a per-question
+table of expected versus called tools, and any question that failed to
+complete. The nightly GitHub Actions job runs the same command and is marked
+`continue-on-error`, so a bad night never turns the build red.
 
-The nightly GitHub Actions job is already wired for this and expects an
-`ANTHROPIC_API_KEY` secret; it is marked `continue-on-error` so a bad night
-never turns the build red.
+Two choices worth knowing about:
+
+- **The run authenticates as ADMIN of tenant 7**, so every tool is reachable.
+  Suite B measures tool *selection*; permissions are Suite A's job. A restricted
+  identity would conflate "chose the wrong tool" with "was refused" and make the
+  score depend on the role rather than the descriptions.
+- **Tool calls really execute.** They go through the governance chain against
+  the seeded database, so an injection question is answered by the same tenant
+  scoping that protects production — not by a stub.
+
+## Not yet run
+
+**No scores are recorded in this repository.** The environment it was built in
+has no API key, and `docs/eval-report.md` says so rather than showing invented
+figures. The first question anyone asks about a metric is how it was measured.
 
 ## Metric definitions
 

@@ -1,5 +1,6 @@
 package com.bizmcp.config;
 
+import com.bizmcp.audit.RetentionProperties;
 import com.bizmcp.governance.GovernanceProperties;
 import com.bizmcp.governance.ratelimit.InMemoryRateLimiter;
 import com.bizmcp.governance.ratelimit.RateLimiter;
@@ -17,7 +18,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 import java.time.Clock;
 
 @Configuration(proxyBeanMethods = false)
-@EnableConfigurationProperties(GovernanceProperties.class)
+@EnableConfigurationProperties({GovernanceProperties.class, RetentionProperties.class})
 @EnableScheduling
 public class BizMcpConfig {
 

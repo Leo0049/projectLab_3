@@ -69,6 +69,34 @@ public class AuditWriter {
         return write(principal, call, traceId, "DENY", "RATE_LIMITED");
     }
 
+    /**
+     * Records a read of the audit trail itself (spec section 7.4).
+     *
+     * <p>Reading the evidence is an auditable act: without this, the one role
+     * that can see everything is the only role that leaves no trace.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public Long recordAuditAccess(BizPrincipal principal, String action, String traceId) {
+        try {
+            AuditLog entry = new AuditLog();
+            entry.setTraceId(traceId);
+            entry.setPrincipalId(principal.userId());
+            entry.setPrincipalRole(principal.role().name());
+            entry.setTenantId(principal.tenantId());
+            entry.setToolName(action);
+            entry.setRiskTier("T2");
+            entry.setArguments("{}");
+            entry.setDecision("ALLOW");
+            entry.setOutcome("SUCCESS");
+            entry.setClientName(principal.clientName());
+            return repository.saveAndFlush(entry).getId();
+        } catch (RuntimeException e) {
+            meterRegistry.counter("mcp_audit_write_failures_total").increment();
+            log.error("could not record audit access by {}", principal.username(), e);
+            throw new AuditWriteFailedException(e);
+        }
+    }
+
     private Long write(BizPrincipal principal, ToolCall call, String traceId,
                        String decision, String denyReason) {
         try {
