@@ -11,6 +11,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Clock;
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -187,6 +188,23 @@ public class ApprovalService {
     @Transactional(readOnly = true)
     public List<ApprovalRequest> pendingFor(long tenantId) {
         return repository.findByTenantIdOrderByCreatedAtDesc(tenantId);
+    }
+
+    /**
+     * The approval console's rows, with the stored JSON already resolved into
+     * something a person can read at a glance. Kept here rather than in the
+     * controller because this class owns the JSON columns.
+     */
+    @Transactional(readOnly = true)
+    public List<ApprovalRowView> consoleRows(long tenantId, ZoneId zone) {
+        OffsetDateTime now = now();
+        return pendingFor(tenantId).stream()
+                .map(request -> ApprovalRowView.of(request,
+                        readJson(request.getPreview()),
+                        readJson(request.getArguments()),
+                        now,
+                        zone))
+                .toList();
     }
 
     /** Marks overdue requests EXPIRED so a stale approval cannot be clicked later. */

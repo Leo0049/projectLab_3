@@ -4,7 +4,7 @@ Three suites, with deliberately different standards:
 
 | Suite | Runs | Standard | Result |
 |---|---|---|---|
-| **A — governance** | every push | 100%, build fails otherwise | **222 / 222 pass** |
+| **A — governance** | every push | 100%, build fails otherwise | **237 / 237 pass** |
 | **B — LLM evaluation** | nightly / on demand, needs an API key | reported, never enforced | see `eval-report-suite-b.md` |
 | **Performance** | nightly / on demand | P95 < 300 ms | see `performance-report.md` |
 
@@ -22,6 +22,7 @@ mvn verify
 | Masking rules, per strategy and edge case | 26 | pass |
 | Tool-level RBAC (tool × role matrix) | 26 | pass |
 | HTTP filter chains, role gates, CSRF, audit console | 17 | pass |
+| Approval console rendering (preview legibility, expiry, ordering) | 15 | pass |
 | Approval state machine, every legal and illegal edge | 13 | pass |
 | Query template coverage (every template executed) | 12 | pass |
 | Approval flow, idempotency and retry budget | 12 | pass |
@@ -45,14 +46,14 @@ mvn verify
 | Spike 1 regression (AOP proxy vs discovery) | 2 | pass |
 | Audit write failure refuses the call | 1 | pass |
 | Migration, seed integrity and tenant reference data | 4 | pass |
-| **Total** | **222** | **100% pass** |
+| **Total** | **237** | **100% pass** |
 
 Suite A runs against real PostgreSQL 16 (started in-process, no Docker daemon
 required) and real Redis where one is available.
 
 ### Defects found by auditing coverage against claims
 
-The suite grew from 82 to 222 through two audits and one live rehearsal. Everything it
+The suite grew from 82 to 237 through two audits and one live rehearsal. Everything it
 caught shared one property — **it failed silently**, with no error, no log line,
 and a green build:
 

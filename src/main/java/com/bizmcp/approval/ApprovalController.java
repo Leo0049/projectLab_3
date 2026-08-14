@@ -1,6 +1,7 @@
 package com.bizmcp.approval;
 
 import com.bizmcp.security.BizUserDetails;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -11,6 +12,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
+import java.time.ZoneId;
 import java.util.List;
 
 /**
@@ -26,14 +28,17 @@ import java.util.List;
 public class ApprovalController {
 
     private final ApprovalService approvalService;
+    private final ZoneId businessZone;
 
-    public ApprovalController(ApprovalService approvalService) {
+    public ApprovalController(ApprovalService approvalService,
+                              @Value("${bizmcp.business-zone:Asia/Taipei}") String businessZone) {
         this.approvalService = approvalService;
+        this.businessZone = ZoneId.of(businessZone);
     }
 
     @GetMapping
     public String list(@AuthenticationPrincipal BizUserDetails user, Model model) {
-        List<ApprovalRequest> requests = approvalService.pendingFor(user.tenantId());
+        List<ApprovalRowView> requests = approvalService.consoleRows(user.tenantId(), businessZone);
         model.addAttribute("requests", requests);
         model.addAttribute("displayName", user.displayName());
         return "approvals";
