@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <title>BizMCP 登入</title>
+    <style>
+        body { font-family: system-ui, -apple-system, "Noto Sans TC", sans-serif;
+               margin: 4rem auto; max-width: 22rem; color: #1c1c1e; }
+        h1 { font-size: 1.2rem; }
+        label { display: block; margin: .8rem 0 .2rem; font-size: .9rem; }
+        input { width: 100%; padding: .45rem; box-sizing: border-box; }
+        button { margin-top: 1.2rem; padding: .5rem 1rem; width: 100%; cursor: pointer; }
+        .err { color: #c1121f; font-size: .9rem; margin-top: .8rem; }
+    </style>
+</head>
+<body>
+<h1>BizMCP</h1>
+<form th:action="@{/login}" method="post">
+    <label for="username">帳號</label>
+    <input type="text" id="username" name="username" autofocus>
+    <label for="password">密碼</label>
+    <input type="password" id="password" name="password">
+    <button type="submit">登入</button>
+</form>
+<p class="err" th:if="${param.error}">帳號或密碼錯誤。</p>
+</body>
+</html>

@@ -1,0 +1,57 @@
+# One-command local stack (spec section 2.2).
+#   docker compose up --build
+# then point MCP Inspector at http://localhost:8080/mcp
+#
+# The app container runs Flyway on startup: schema, reference data, and 50,000
+# seeded orders. First boot takes a little longer while that seed runs.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: bizmcp
+      POSTGRES_USER: bizmcp
+      POSTGRES_PASSWORD: bizmcp
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bizmcp -d bizmcp"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  bizmcp:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      BIZMCP_DB_URL: jdbc:postgresql://postgres:5432/bizmcp
+      BIZMCP_DB_USER: bizmcp
+      BIZMCP_DB_PASSWORD: bizmcp
+      BIZMCP_REDIS_HOST: redis
+      BIZMCP_REDIS_PORT: 6379
+      BIZMCP_ISSUER_URI: http://localhost:8080
+      # Local-only role switching for MCP Inspector. OAuth is the real path;
+      # set this to false to force it.
+      BIZMCP_API_KEY_ENABLED: "true"
+    ports:
+      - "8080:8080"
+
+volumes:
+  postgres-data:

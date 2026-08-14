@@ -1,0 +1,176 @@
+# Named query templates (spec section 7.1).
+#
+# Every template MUST bind :__tenant. QueryTemplateRegistry refuses to start if
+# one does not, so a missing tenant predicate is a boot failure rather than a
+# cross-tenant leak discovered in production.
+#
+# :__tenant is always bound from the authenticated principal. It is never taken
+# from a tool argument, and no tool exposes it as a parameter.
+
+templates:
+
+  - id: sales.summary_by_store
+    riskTier: T1
+    maxRows: 200
+    sql: |
+      SELECT s.store_id                  AS group_id,
+             s.store_name                AS group_key,
+             COUNT(DISTINCT o.order_id)  AS order_count,
+             COALESCE(SUM(o.total_amount), 0) AS revenue
+      FROM orders o
+      JOIN stores s ON s.store_id = o.store_id
+      WHERE o.created_at >= :startDate
+        AND o.created_at < :endDateExclusive
+        AND o.status = 'COMPLETED'
+        AND o.merchant_id = :__tenant
+      GROUP BY s.store_id, s.store_name
+      ORDER BY revenue DESC
+
+  - id: sales.summary_by_product
+    riskTier: T1
+    maxRows: 200
+    sql: |
+      SELECT p.product_id AS group_id,
+             p.name       AS group_key,
+             COUNT(DISTINCT o.order_id) AS order_count,
+             COALESCE(SUM(oi.subtotal), 0) AS revenue
+      FROM orders o
+      JOIN order_items oi ON oi.order_id = o.order_id
+      JOIN products p ON p.product_id = oi.product_id
+      WHERE o.created_at >= :startDate
+        AND o.created_at < :endDateExclusive
+        AND o.status = 'COMPLETED'
+        AND o.merchant_id = :__tenant
+      GROUP BY p.product_id, p.name
+      ORDER BY revenue DESC
+
+  - id: sales.summary_by_day
+    riskTier: T1
+    maxRows: 200
+    sql: |
+      SELECT NULL::bigint AS group_id,
+             to_char(date_trunc('day', o.created_at), 'YYYY-MM-DD') AS group_key,
+             COUNT(DISTINCT o.order_id) AS order_count,
+             COALESCE(SUM(o.total_amount), 0) AS revenue
+      FROM orders o
+      WHERE o.created_at >= :startDate
+        AND o.created_at < :endDateExclusive
+        AND o.status = 'COMPLETED'
+        AND o.merchant_id = :__tenant
+      GROUP BY date_trunc('day', o.created_at)
+      ORDER BY group_key
+
+  - id: inventory.levels
+    riskTier: T1
+    maxRows: 200
+    sql: |
+      SELECT p.product_id,
+             p.name,
+             i.quantity,
+             i.low_water_mark,
+             (i.quantity <= i.low_water_mark) AS below_threshold
+      FROM inventory i
+      JOIN products p ON p.product_id = i.product_id
+      WHERE i.merchant_id = :__tenant
+        AND (:productId::bigint IS NULL OR p.product_id = :productId::bigint)
+        AND (:belowThreshold::boolean = FALSE OR i.quantity <= i.low_water_mark)
+      ORDER BY below_threshold DESC, i.quantity ASC
+
+  - id: products.top_selling
+    riskTier: T1
+    maxRows: 200
+    sql: |
+      SELECT p.product_id,
+             p.name,
+             SUM(oi.quantity)  AS total_quantity,
+             SUM(oi.subtotal)  AS total_revenue
+      FROM order_items oi
+      JOIN orders o   ON o.order_id = oi.order_id
+      JOIN products p ON p.product_id = oi.product_id
+      WHERE o.created_at >= :startDate
+        AND o.created_at < :endDateExclusive
+        AND o.status = 'COMPLETED'
+        AND o.merchant_id = :__tenant
+      GROUP BY p.product_id, p.name
+      ORDER BY total_quantity DESC
+
+  - id: group_orders.count_by_status
+    riskTier: T1
+    maxRows: 200
+    sql: |
+      SELECT g.status,
+             COUNT(*) AS group_order_count
+      FROM group_orders g
+      WHERE g.created_at >= :startDate
+        AND g.created_at < :endDateExclusive
+        AND g.merchant_id = :__tenant
+        AND (:status::varchar IS NULL OR g.status = :status::varchar)
+      GROUP BY g.status
+      ORDER BY group_order_count DESC
+
+  - id: group_orders.search
+    riskTier: T2
+    maxRows: 200
+    sql: |
+      SELECT g.group_order_id,
+             g.title,
+             g.status,
+             s.store_name,
+             g.created_at,
+             (SELECT COUNT(*) FROM orders o WHERE o.group_order_id = g.group_order_id) AS order_count
+      FROM group_orders g
+      JOIN stores s ON s.store_id = g.store_id
+      WHERE g.created_at >= :startDate
+        AND g.created_at < :endDateExclusive
+        AND g.merchant_id = :__tenant
+        AND (:status::varchar IS NULL OR g.status = :status::varchar)
+        AND (:keyword::varchar IS NULL OR g.title ILIKE '%' || :keyword::varchar || '%')
+      ORDER BY g.created_at DESC
+
+  - id: orders.detail
+    riskTier: T2
+    maxRows: 1
+    sql: |
+      SELECT o.order_id,
+             o.status,
+             o.total_amount,
+             o.created_at,
+             s.store_name,
+             c.name    AS customer_name,
+             c.phone   AS customer_phone,
+             c.address AS customer_address,
+             c.email   AS customer_email
+      FROM orders o
+      JOIN stores s    ON s.store_id = o.store_id
+      JOIN customers c ON c.customer_id = o.customer_id
+      WHERE o.order_id = :orderId
+        AND o.merchant_id = :__tenant
+
+  - id: orders.detail_items
+    riskTier: T2
+    maxRows: 200
+    sql: |
+      SELECT p.name AS product_name,
+             oi.quantity,
+             oi.unit_price,
+             oi.subtotal
+      FROM order_items oi
+      JOIN orders o   ON o.order_id = oi.order_id
+      JOIN products p ON p.product_id = oi.product_id
+      WHERE oi.order_id = :orderId
+        AND o.merchant_id = :__tenant
+      ORDER BY oi.order_item_id
+
+  - id: inventory.single
+    riskTier: T1
+    maxRows: 1
+    sql: |
+      SELECT p.product_id,
+             p.name,
+             i.quantity,
+             i.low_water_mark,
+             (i.quantity <= i.low_water_mark) AS below_threshold
+      FROM inventory i
+      JOIN products p ON p.product_id = i.product_id
+      WHERE i.merchant_id = :__tenant
+        AND p.product_id = :productId

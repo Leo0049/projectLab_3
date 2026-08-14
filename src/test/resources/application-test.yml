@@ -1,0 +1,30 @@
+spring:
+  # Suite A runs against a real PostgreSQL started in-process by zonky
+  # embedded-postgres, so JSONB and the query templates are exercised for real
+  # without requiring a Docker daemon. See AbstractPostgresTest.
+  flyway:
+    locations: classpath:db/migration,classpath:db/seed/test
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.data.redis.autoconfigure.RedisAutoConfiguration
+      - org.springframework.boot.data.redis.autoconfigure.RedisRepositoriesAutoConfiguration
+
+bizmcp:
+  governance:
+    max-rows: 200
+    approval-ttl: PT30M
+    max-approval-retries: 3
+    rate-limits:
+      T1: { perMinute: 60, perDay: 2000 }
+      T2: { perMinute: 20, perDay: 300 }
+      T3: { perMinute: 5, perDay: 20 }
+
+logging:
+  level:
+    com.bizmcp: INFO
+    org.springframework.jdbc.core: INFO
