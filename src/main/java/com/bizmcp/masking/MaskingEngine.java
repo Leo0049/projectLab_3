@@ -99,7 +99,13 @@ public class MaskingEngine {
 
             Object raw;
             try {
-                raw = component.getAccessor().invoke(record);
+                // A record component's accessor is public, but the record itself
+                // may not be — a package-private or nested result type would
+                // otherwise fail here with IllegalAccessException. Masking must
+                // not depend on how visible the DTO happens to be declared.
+                java.lang.reflect.Method accessor = component.getAccessor();
+                accessor.setAccessible(true);
+                raw = accessor.invoke(record);
             } catch (ReflectiveOperationException e) {
                 throw new IllegalStateException(
                         "cannot read record component " + type.getSimpleName() + "." + component.getName(), e);

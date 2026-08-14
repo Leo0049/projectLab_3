@@ -160,17 +160,3 @@ templates:
       WHERE oi.order_id = :orderId
         AND o.merchant_id = :__tenant
       ORDER BY oi.order_item_id
-
-  - id: inventory.single
-    riskTier: T1
-    maxRows: 1
-    sql: |
-      SELECT p.product_id,
-             p.name,
-             i.quantity,
-             i.low_water_mark,
-             (i.quantity <= i.low_water_mark) AS below_threshold
-      FROM inventory i
-      JOIN products p ON p.product_id = i.product_id
-      WHERE i.merchant_id = :__tenant
-        AND p.product_id = :productId

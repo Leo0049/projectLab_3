@@ -10,12 +10,19 @@ spring:
       ddl-auto: validate
 
   autoconfigure:
+    # Boot 4 names these DataRedis*, not Redis*. The earlier (wrong) names were
+    # silently ignored, so Redis autoconfiguration was in fact active in tests
+    # and /actuator/health reported DOWN.
     exclude:
-      - org.springframework.boot.data.redis.autoconfigure.RedisAutoConfiguration
-      - org.springframework.boot.data.redis.autoconfigure.RedisRepositoriesAutoConfiguration
+      - org.springframework.boot.data.redis.autoconfigure.DataRedisAutoConfiguration
+      - org.springframework.boot.data.redis.autoconfigure.DataRedisRepositoriesAutoConfiguration
 
 bizmcp:
   governance:
+    # Tests have no Redis server; per-instance counters are what we want here,
+    # and stating it explicitly means the quota tests cannot silently start
+    # exercising a different implementation.
+    rate-limit-backend: MEMORY
     max-rows: 200
     approval-ttl: PT30M
     max-approval-retries: 3

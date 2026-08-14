@@ -59,6 +59,10 @@ spring:
 
 bizmcp:
   governance:
+    # REDIS keeps quotas shared across instances. MEMORY is per-instance and is
+    # only appropriate for a single-node local run; startup fails if REDIS is
+    # requested without a configured Redis, rather than quietly degrading.
+    rate-limit-backend: ${BIZMCP_RATE_LIMIT_BACKEND:REDIS}
     max-rows: 200
     max-response-tokens: 8000
     approval-ttl: PT30M

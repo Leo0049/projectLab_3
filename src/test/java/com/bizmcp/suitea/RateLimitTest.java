@@ -19,6 +19,14 @@ class RateLimitTest extends GovernanceTestBase {
     @Autowired AuditLogRepository auditLogRepository;
 
     @Test
+    void theQuotaStoreUnderTestIsTheInMemoryOne() {
+        // Guards against the tests silently exercising a different
+        // implementation than the one they claim to. See RateLimiterWiringTest.
+        assertThat(rateLimiter)
+                .isInstanceOf(com.bizmcp.governance.ratelimit.InMemoryRateLimiter.class);
+    }
+
+    @Test
     void theMinuteQuotaStopsTheSixthWriteAttempt() {
         actAs(Role.STORE_MANAGER, TENANT_A);
         Map<String, Object> arguments = ToolArguments.validFor("adjust_inventory");

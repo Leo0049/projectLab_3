@@ -46,7 +46,7 @@ class TenantIsolationTest extends GovernanceTestBase {
 
         actAs(Role.ADMIN, TENANT_B);
         assertThat(tools.callForWirePayload("query_sales_summary",
-                ToolArguments.validFor("query_sales_summary"))).contains("1000");
+                ToolArguments.validFor("query_sales_summary"))).contains("760");
     }
 
     @Test

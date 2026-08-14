@@ -196,13 +196,6 @@ public class BusinessQueryService {
                 items));
     }
 
-    @Transactional(readOnly = true)
-    public Optional<ToolResults.InventoryRow> singleProduct(long productId) {
-        BizPrincipal principal = principalResolver.current();
-        QueryResult result = templates.execute("inventory.single", principal, Map.of("productId", productId));
-        return result.isEmpty() ? Optional.empty() : Optional.of(toInventoryRow(result.first()));
-    }
-
     private static ToolResults.InventoryRow toInventoryRow(Map<String, Object> row) {
         return new ToolResults.InventoryRow(
                 Rows.longValue(row, "product_id"),

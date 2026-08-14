@@ -25,6 +25,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class ApprovalFlowTest extends GovernanceTestBase {
 
     private static final long APPROVER_ID = 45L;
+    /** 芋圓鮮奶, untouched by the other tests in this class. */
+    private static final long TARO = 1005L;
 
     @Autowired ApprovalService approvalService;
     @Autowired ApprovalRequestRepository approvalRepository;
@@ -157,6 +159,95 @@ class ApprovalFlowTest extends GovernanceTestBase {
         actAs(Role.STORE_MANAGER, TENANT_B);
         assertThat(tools.callForWirePayload("check_approval_status", Map.of("approvalId", approvalId)))
                 .contains("找不到審批單");
+    }
+
+    // --- retry paths (spec section 8.2) ---------------------------------
+    // 芋圓鮮奶 (1005) is used here so the stock changes cannot disturb the
+    // 珍珠奶茶 assertions in the tests above.
+
+    @Test
+    void aRetryCanSucceedOnceTheBlockingConditionIsGone() {
+        actAs(Role.STORE_MANAGER, TENANT_A);
+        int before = quantityOf(TARO);
+
+        // More than the stock on hand, so the guarded UPDATE matches nothing.
+        tools.call("adjust_inventory", Map.of(
+                "productId", TARO, "delta", -(before + 50), "reason", "先失敗"));
+        String approvalId = latestPendingId();
+
+        assertThat(approvalService.approve(approvalId, APPROVER_ID, TENANT_A).getStatus())
+                .isEqualTo(ApprovalStatus.EXECUTION_FAILED);
+        assertThat(quantityOf(TARO)).isEqualTo(before);
+
+        // A delivery arrives and the world changes.
+        jdbc.update("UPDATE inventory SET quantity = quantity + 1000 "
+                    + "WHERE product_id = ? AND merchant_id = ?", TARO, TENANT_A);
+
+        ApprovalRequest retried = approvalService.retry(approvalId, APPROVER_ID, TENANT_A);
+
+        assertThat(retried.getStatus()).isEqualTo(ApprovalStatus.EXECUTED);
+        assertThat(retried.getRetryCount()).isEqualTo((short) 1);
+        assertThat(quantityOf(TARO)).isEqualTo(before + 1000 - (before + 50));
+    }
+
+    @Test
+    void retriesAreBoundedAndEndInAbandoned() {
+        actAs(Role.STORE_MANAGER, TENANT_A);
+        int before = quantityOf(TARO);
+
+        tools.call("adjust_inventory", Map.of(
+                "productId", TARO, "delta", -999_999, "reason", "永遠會失敗"));
+        String approvalId = latestPendingId();
+        approvalService.approve(approvalId, APPROVER_ID, TENANT_A);
+
+        // Three retries are allowed; the third exhausts the budget.
+        assertThat(approvalService.retry(approvalId, APPROVER_ID, TENANT_A).getStatus())
+                .isEqualTo(ApprovalStatus.EXECUTION_FAILED);
+        assertThat(approvalService.retry(approvalId, APPROVER_ID, TENANT_A).getStatus())
+                .isEqualTo(ApprovalStatus.EXECUTION_FAILED);
+
+        ApprovalRequest exhausted = approvalService.retry(approvalId, APPROVER_ID, TENANT_A);
+        assertThat(exhausted.getStatus()).isEqualTo(ApprovalStatus.ABANDONED);
+        assertThat(exhausted.getRetryCount()).isEqualTo((short) 3);
+
+        // ABANDONED is terminal: no fourth attempt.
+        assertThatThrownBy(() -> approvalService.retry(approvalId, APPROVER_ID, TENANT_A))
+                .isInstanceOf(ApprovalService.IllegalApprovalTransitionException.class);
+
+        assertThat(quantityOf(TARO)).isEqualTo(before);
+    }
+
+    @Test
+    void anAbandonedRequestIsReportedHonestlyToTheModel() {
+        actAs(Role.STORE_MANAGER, TENANT_A);
+        tools.call("adjust_inventory", Map.of(
+                "productId", TARO, "delta", -999_999, "reason", "永遠會失敗"));
+        String approvalId = latestPendingId();
+        approvalService.approve(approvalId, APPROVER_ID, TENANT_A);
+        for (int i = 0; i < 3; i++) {
+            approvalService.retry(approvalId, APPROVER_ID, TENANT_A);
+        }
+
+        String payload = tools.callForWirePayload("check_approval_status",
+                Map.of("approvalId", approvalId));
+
+        assertThat(payload).contains("ABANDONED").contains("重試次數已達上限");
+    }
+
+    @Test
+    void aSucceededRequestCannotBeRetried() {
+        actAs(Role.STORE_MANAGER, TENANT_A);
+        tools.call("adjust_inventory", Map.of(
+                "productId", TARO, "delta", -1, "reason", "會成功"));
+        String approvalId = latestPendingId();
+        approvalService.approve(approvalId, APPROVER_ID, TENANT_A);
+        int after = quantityOf(TARO);
+
+        // Idempotent rather than an error: retrying something already done
+        // must not apply it twice.
+        assertThat(approvalService.retry(approvalId, APPROVER_ID, TENANT_A).getStatus())
+                .isEqualTo(ApprovalStatus.EXECUTED);
+        assertThat(quantityOf(TARO)).isEqualTo(after);
     }
 
     private int quantityOf(long productId) {

@@ -23,6 +23,31 @@ public class GovernanceProperties {
 
     private Map<RiskTier, Quota> rateLimits = new EnumMap<>(RiskTier.class);
 
+    /**
+     * Which quota store to use.
+     *
+     * <p>Chosen explicitly rather than inferred from whether Redis happens to
+     * be on the classpath. Guessing here is dangerous in one direction: falling
+     * back to per-instance counters when shared counters were intended
+     * multiplies every quota by the number of instances, quietly.
+     */
+    private RateLimitBackend rateLimitBackend = RateLimitBackend.REDIS;
+
+    public enum RateLimitBackend {
+        /** Shared across instances. The only correct choice for a real deployment. */
+        REDIS,
+        /** Per-instance counters, for tests and single-node local runs. */
+        MEMORY
+    }
+
+    public RateLimitBackend getRateLimitBackend() {
+        return rateLimitBackend;
+    }
+
+    public void setRateLimitBackend(RateLimitBackend rateLimitBackend) {
+        this.rateLimitBackend = rateLimitBackend;
+    }
+
     public static class Quota {
         private int perMinute;
         private int perDay;
