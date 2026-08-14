@@ -23,9 +23,12 @@ public final class ApprovalViews {
             return new PendingApproval(
                     "PENDING_APPROVAL",
                     approvalId,
-                    "此操作需人工核准，尚未生效。請告知使用者前往 /approvals 確認；"
-                    + "核准後請用 check_approval_status（approvalId=%s）查詢實際結果，"
-                    + "在查到 EXECUTED 之前不要向使用者宣稱已完成。".formatted(approvalId),
+                    // Parenthesised deliberately: `a + b + c.formatted(x)` binds
+                    // formatted() to c alone, which left a literal "%s" in the
+                    // message the model reads. Caught by a live demo, not a test.
+                    ("此操作需人工核准，尚未生效。請告知使用者前往 /approvals 確認；"
+                     + "核准後請用 check_approval_status（approvalId=%s）查詢實際結果，"
+                     + "在查到 EXECUTED 之前不要向使用者宣稱已完成。").formatted(approvalId),
                     preview);
         }
     }

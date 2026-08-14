@@ -13,10 +13,14 @@ SELECT m.merchant_id,
        now() - make_interval(days => (g.n % 180)),
        now() - make_interval(days => (g.n % 180)) + interval '6 hours'
 FROM generate_series(1, 2000) AS g(n)
+    -- OFFSET, not ORDER BY <expr>: an expression that ties between stores
+    -- resolves the tie the same way every time, which silently starved one
+    -- tenant of all its rows. This is exactly uniform across the five stores.
          JOIN LATERAL (
     SELECT store_id, store_name, merchant_id
     FROM stores
-    ORDER BY (store_id * 7 + g.n) % 5
+    ORDER BY store_id
+    OFFSET (g.n % 5)
     LIMIT 1
     ) s ON TRUE
          JOIN merchants m ON m.merchant_id = s.merchant_id;
@@ -33,17 +37,17 @@ SELECT s.merchant_id,
        now() - make_interval(days => (o.n % 180), hours => (o.n % 24), mins => (o.n % 60))
 FROM generate_series(1, 50000) AS o(n)
          JOIN LATERAL (
-    SELECT store_id, merchant_id FROM stores ORDER BY (store_id * 13 + o.n) % 5 LIMIT 1
+    SELECT store_id, merchant_id FROM stores ORDER BY store_id OFFSET (o.n % 5) LIMIT 1
     ) s ON TRUE
          JOIN LATERAL (
     SELECT customer_id FROM customers
     WHERE customers.merchant_id = s.merchant_id
-    ORDER BY (customer_id * 3 + o.n) % 4 LIMIT 1
+    ORDER BY customer_id OFFSET (o.n % 3) LIMIT 1
     ) c ON TRUE
          LEFT JOIN LATERAL (
     SELECT group_order_id FROM group_orders
     WHERE group_orders.merchant_id = s.merchant_id
-    ORDER BY (group_order_id * 11 + o.n) % 500 LIMIT 1
+    ORDER BY group_order_id OFFSET (o.n % 100) LIMIT 1
     ) go ON TRUE;
 
 -- One to three line items per order, always from the order's own tenant.
@@ -58,7 +62,7 @@ FROM orders ord
          JOIN LATERAL (
     SELECT product_id, unit_price FROM products
     WHERE products.merchant_id = ord.merchant_id
-    ORDER BY (product_id * 17 + ord.order_id + line.k) % 5 LIMIT 1
+    ORDER BY product_id OFFSET ((ord.order_id + line.k) % 5) LIMIT 1
     ) p ON TRUE
          JOIN LATERAL (SELECT 1 + ((ord.order_id + line.k) % 4) AS quantity) q ON TRUE;
 

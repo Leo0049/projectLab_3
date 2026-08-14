@@ -52,6 +52,19 @@ class ApprovalFlowTest extends GovernanceTestBase {
     }
 
     @Test
+    void thePendingMessageCarriesTheRealApprovalId() {
+        actAs(Role.STORE_MANAGER, TENANT_A);
+        String payload = tools.callForWirePayload("adjust_inventory", Map.of(
+                "productId", ToolArguments.PRODUCT_PEARL, "delta", -1, "reason", "訊息檢查"));
+        String approvalId = latestPendingId();
+
+        // The model is told to quote this id back via check_approval_status, so
+        // an unsubstituted placeholder dead-ends the conversation.
+        assertThat(payload).doesNotContain("%s");
+        assertThat(payload).contains("approvalId=" + approvalId);
+    }
+
+    @Test
     void approvingTwiceAppliesTheWriteOnce() {
         actAs(Role.STORE_MANAGER, TENANT_A);
         int before = quantityOf(ToolArguments.PRODUCT_PEARL);

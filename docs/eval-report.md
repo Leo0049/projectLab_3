@@ -4,7 +4,7 @@ Three suites, with deliberately different standards:
 
 | Suite | Runs | Standard | Result |
 |---|---|---|---|
-| **A — governance** | every push | 100%, build fails otherwise | **218 / 218 pass** |
+| **A — governance** | every push | 100%, build fails otherwise | **222 / 222 pass** |
 | **B — LLM evaluation** | nightly / on demand, needs an API key | reported, never enforced | see `eval-report-suite-b.md` |
 | **Performance** | nightly / on demand | P95 < 300 ms | see `performance-report.md` |
 
@@ -24,7 +24,7 @@ mvn verify
 | HTTP filter chains, role gates, CSRF, audit console | 17 | pass |
 | Approval state machine, every legal and illegal edge | 13 | pass |
 | Query template coverage (every template executed) | 12 | pass |
-| Approval flow, idempotency and retry budget | 11 | pass |
+| Approval flow, idempotency and retry budget | 12 | pass |
 | Masking traversal (nested records, collections, maps) | 11 | pass |
 | Sales groupings and tool filters | 10 | pass |
 | Audit retention, archival and partition expiry | 9 | pass |
@@ -44,15 +44,15 @@ mvn verify
 | Tool discovery over the protocol | 2 | pass |
 | Spike 1 regression (AOP proxy vs discovery) | 2 | pass |
 | Audit write failure refuses the call | 1 | pass |
-| Migration and seed smoke test | 1 | pass |
-| **Total** | **218** | **100% pass** |
+| Migration, seed integrity and tenant reference data | 4 | pass |
+| **Total** | **222** | **100% pass** |
 
 Suite A runs against real PostgreSQL 16 (started in-process, no Docker daemon
 required) and real Redis where one is available.
 
 ### Defects found by auditing coverage against claims
 
-The suite grew from 82 to 218 through two deliberate audits. Everything it
+The suite grew from 82 to 222 through two audits and one live rehearsal. Everything it
 caught shared one property — **it failed silently**, with no error, no log line,
 and a green build:
 

@@ -110,6 +110,28 @@ class PerformanceVerificationTest {
 
     @Test
     @Order(2)
+    void bothTenantsHaveARealShareOfTheDemoData() {
+        List<java.util.Map<String, Object>> perTenant = jdbc.queryForList(
+                "SELECT merchant_id, count(*) AS orders FROM orders GROUP BY merchant_id ORDER BY merchant_id");
+
+        // The demo previously put all 50,000 orders on tenant 7: a LATERAL that
+        // ordered by an expression tied between stores and resolved the tie the
+        // same way every time. Isolation demonstrated against an empty tenant
+        // proves nothing, so the dataset itself is asserted.
+        assertThat(perTenant).as("both merchants must own orders").hasSize(2);
+        for (var row : perTenant) {
+            long orders = ((Number) row.get("orders")).longValue();
+            assertThat(orders)
+                    .as("orders for merchant %s", row.get("merchant_id"))
+                    .isGreaterThan(5_000);
+        }
+        REPORT.add("- Tenant split: " + perTenant.stream()
+                .map(row -> "merchant %s = %s orders".formatted(row.get("merchant_id"), row.get("orders")))
+                .toList());
+    }
+
+    @Test
+    @Order(2)
     void theCompositeIndexExists() {
         List<String> indexes = jdbc.queryForList(
                 "SELECT indexname FROM pg_indexes WHERE tablename = 'orders'", String.class);

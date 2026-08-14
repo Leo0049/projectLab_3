@@ -23,6 +23,7 @@
 - [治理機制](#治理機制)
 - [兩個 spike 的結論](#兩個-spike-的結論)
 - [測試](#測試)
+- [實機驗證](#實機驗證)
 - [完整性稽核發現的問題](#完整性稽核發現的問題)
 - [與規格書的差異](#與規格書的差異)
 - [已知限制](#已知限制)
@@ -394,7 +395,7 @@ private final tools.jackson.databind.json.JsonMapper jsonMapper;   // 自己 new
 mvn verify
 ```
 
-**218 個測試，100% 通過，每次 push 擋 CI。**
+**222 個測試，100% 通過，每次 push 擋 CI。**
 
 | 類別 | 案例數 | 斷言重點 |
 |---|---|---|
@@ -403,7 +404,7 @@ mvn verify
 | HTTP filter chain | 17 | 未帶 token 401、審批頁角色閘門、CSRF、稽核台權限 |
 | 審批狀態機（單元） | 13 | 每一條合法與非法轉換，終態不可再動 |
 | 查詢模板覆蓋 | 12 | **每一個模板都真的執行過**，且雙租戶皆可 |
-| 審批流程與冪等 | 11 | 同一 approvalId 執行兩次庫存只變動一次；重試上限轉 ABANDONED |
+| 審批流程與冪等 | 12 | 同一 approvalId 執行兩次庫存只變動一次；重試上限轉 ABANDONED；待審批訊息含真實單號 |
 | 遮罩走訪（單元） | 11 | 巢狀 record、List／Set／Map、不可變性 |
 | 分組與篩選 | 10 | STORE／DAY／PRODUCT 三種分組總額必須一致 |
 | 稽核保存與封存 | 9 | 90 天轉封存、分區到期即 DROP、審批單直接刪除 |
@@ -423,7 +424,7 @@ mvn verify
 | 工具註冊 | 2 | 8 個工具確實註冊且治理鏈生效 |
 | Spike ① 回歸 | 2 | 代理破壞發現機制的行為被釘住 |
 | 稽核寫入失敗 | 1 | 稽核寫不進去時工具被拒 |
-| Migration + seed | 1 | schema 與種子資料可套用 |
+| Migration + 種子完整性 | 4 | schema 可套用；每個品項都有庫存；兩租戶都有參考資料 |
 
 另外兩套**刻意不擋 build** 的：
 
@@ -448,6 +449,33 @@ Suite B（LLM 評測，30 題）**尚未執行，因此沒有任何分數**。
 真正驅動模型的部分還沒寫，見 [docs/eval/README.md](docs/eval/README.md)。
 `docs/eval-report.md` 的數字欄位刻意留白——**先編數字比沒有數字更傷**，
 因為第一個問題一定是「你怎麼量的」。
+
+---
+
+## 實機驗證
+
+除了 222 個自動化測試，另外做過一次**實機排練**：用打包好的 jar，接真的
+PostgreSQL 16 與真的 Redis 7，灌 50,000 筆 demo 訂單，照規格書 §13 的
+3 分鐘腳本從頭跑一遍——MCP 走 Streamable HTTP、審批走瀏覽器表單（含 CSRF）。
+完整輸出在 [docs/demo-transcript.md](docs/demo-transcript.md)。
+
+驗證到的行為（皆為實際輸出，非預期值）：
+
+| 腳本段落 | 結果 |
+|---|---|
+| 啟動 | 19.9 秒；**Redis-backed quotas**、9 個模板、8 個工具、治理驗證通過 |
+| 租戶隔離 | 租戶7 看到 3 家店 / 租戶9 看到 2 家店，硬塞 `merchantId=9` 被忽略 |
+| 欄位遮罩 | 同一筆訂單：CS_AGENT 地址被遮、CS_LEAD／ADMIN 可見；姓名電話一律遮 |
+| 工具級 RBAC | STORE_MANAGER 呼叫 `get_order_detail` 被拒，訊息指出需要的角色 |
+| 寫入治理 | 回 PENDING_APPROVAL + preview(120→100)，**資料沒有變** |
+| 人工核准 | erin 於 /approvals 核准 → 庫存變 100 → LLM 查到 EXECUTED |
+| 稽核 | AUDITOR 可讀且參數已遮罩；STORE_MANAGER 讀稽核 403 |
+| 配額 | T3 第 6 次被擋，訊息附可等待秒數 |
+
+**這次排練抓到兩個單元測試沒抓到的問題**，都已修正並補上測試：
+demo 種子把 50,000 筆訂單全放在租戶 7（等於對空租戶示範隔離），
+以及待審批訊息裡的 `approvalId=%s` 沒被代入（Java 字串串接的
+`formatted` 只綁定最後一段）。
 
 ---
 
